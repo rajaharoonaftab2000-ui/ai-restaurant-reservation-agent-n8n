@@ -1,0 +1,716 @@
+{
+  "name": "Restaurant Reservation Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "7fe6fa18-51d5-4ee8-b5b8-cebe6755f174",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -96,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message.text }}",
+        "options": {
+          "systemMessage": "=You are a friendly table-reservation assistant for a restaurant.\n\nToday is {{ $now.setZone('Asia/Karachi').toISO() }} (Pakistan Standard Time, UTC+05:00). The restaurant is open 12:00 to 23:00 every day. Assume a default reservation length of 90 minutes unless the customer says otherwise.\n\nIMPORTANT - TIMEZONE: All reservation times are in Pakistan Standard Time (Asia/Karachi, UTC+05:00), regardless of what timezone the server or calendar defaults to. When the customer gives a time (for example '8 baje' or '8pm'), treat it as Pakistan time. Every start/end date-time you generate for a tool MUST be a full ISO 8601 string that explicitly includes the +05:00 offset (for example 2026-09-27T20:00:00+05:00). Never end a date-time with Z, and never omit the offset.\n\nYour job:\n1. Understand whether the customer wants to BOOK a new table, RESCHEDULE an existing reservation, CANCEL one, or ASK ABOUT THE MENU.\n2. For menu or food questions (dishes, prices, vegetarian/vegan options, categories), use the Menu Knowledge Base tool and answer from what it returns - never invent menu items or prices.\n3. Never book, reschedule, or cancel anything without first using the calendar tool to check real availability, or the sheet tool to find the existing reservation. Never guess or assume a table is free.\n4. For a NEW booking: ask for party size, date, and time if not given. Use Check Availability for the requested time, then only call Create Reservation Event if the slot is genuinely free. If it is taken, propose the two or three nearest open time slots instead and wait for the customer to choose. After creating the event, call Log Reservation to save the record, generating a short booking ID such as RES-0001.\n5. For a RESCHEDULE: use Find Existing Reservation to locate the current booking by chat ID, check availability for the new time, then call Update Reservation Event and Update Reservation Record together so the calendar and the sheet stay in sync.\n6. For a CANCELLATION: use Find Existing Reservation, then call Cancel Reservation Event and Update Reservation Record, setting Status to Cancelled.\n7. If the request is ambiguous about date, time, or party size, ask a short clarifying question instead of guessing.\n8. Keep every reply short, warm, and in plain conversational text - never show raw JSON or tool names to the customer.\n9. If something cannot be resolved, such as no availability that day or a reservation that cannot be found, say so clearly and offer to have a human follow up."
+        }
+      },
+      "id": "6dd15268-9c0a-4e66-bc54-b6e0367c3f9c",
+      "name": "Reservation Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        736,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.1-flash-lite",
+        "options": {}
+      },
+      "id": "e67c42c4-23c3-491c-b990-e0c39283f591",
+      "name": "Gemini Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        112,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "contextWindowLength": 10
+      },
+      "id": "46288ffc-a717-4b98-821b-0f5545f1b16d",
+      "name": "Conversation Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        240,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_CALENDAR_ID"
+        },
+        "timeMin": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('time_min', 'Start of the time range to check, ISO 8601 date-time') }}",
+        "timeMax": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('time_max', 'End of the time range to check, ISO 8601 date-time') }}",
+        "options": {}
+      },
+      "id": "f408281a-0e2a-4d74-9b20-fe2d99db13d8",
+      "name": "Check Availability",
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [
+        384,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_CALENDAR_ID"
+        },
+        "start": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('start', 'Reservation start date-time, ISO 8601') }}",
+        "end": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('end', 'Reservation end date-time, ISO 8601, default 90 minutes after start') }}",
+        "additionalFields": {
+          "description": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('description', 'Party size and any special requests') }}\nChat ID: {{ $('Telegram Trigger').item.json.message.chat.id }}\nCustomer Name: {{ [$('Telegram Trigger').item.json.message.chat.first_name, $('Telegram Trigger').item.json.message.chat.last_name].filter(Boolean).join(' ') }}",
+          "summary": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('summary', 'Short title: Table for N - customer name') }}"
+        }
+      },
+      "id": "28715ac4-8d10-4da5-8aed-7f019c575013",
+      "name": "Create Reservation Event",
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [
+        544,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "calendar": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_CALENDAR_ID"
+        },
+        "eventId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('event_id', 'The Google Calendar event ID to update, from the reservation record') }}",
+        "updateFields": {
+          "end": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('end', 'New reservation end date-time, ISO 8601') }}",
+          "start": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('start', 'New reservation start date-time, ISO 8601') }}"
+        }
+      },
+      "id": "2408733b-5ba8-48e0-87dd-75441598bbbd",
+      "name": "Update Reservation Event",
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [
+        704,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "calendar": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_CALENDAR_ID"
+        },
+        "eventId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('event_id', 'The Google Calendar event ID to cancel, from the reservation record') }}",
+        "options": {}
+      },
+      "id": "4d4451af-208c-454e-ad6b-1546a3d40158",
+      "name": "Cancel Reservation Event",
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [
+        864,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "value": {
+            "Booking ID": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('booking_id', 'Short booking ID such as RES-0001') }}",
+            "Chat ID": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+            "Customer Name": "={{ [$('Telegram Trigger').item.json.message.chat.first_name, $('Telegram Trigger').item.json.message.chat.last_name].filter(Boolean).join(' ') }}",
+            "Party Size": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('party_size', 'Number of guests') }}",
+            "Reservation Date": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('reservation_date', 'Reservation date in YYYY-MM-DD format') }}",
+            "Reservation Time": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('reservation_time', 'Reservation start time, e.g. 20:00') }}",
+            "Special Requests": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('special_requests', 'Any special requests, or none') }}",
+            "Status": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('status', 'Booking status such as Confirmed') }}",
+            "Calendar Event ID": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('event_id', 'The Google Calendar event ID returned when the event was created') }}",
+            "Created At": "={{ $now.toISO() }}",
+            "Last Updated": "={{ $now.toISO() }}",
+            "Reminder Sent": "No"
+          },
+          "schema": [
+            {
+              "id": "Booking ID",
+              "displayName": "Booking ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Chat ID",
+              "displayName": "Chat ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Customer Name",
+              "displayName": "Customer Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Party Size",
+              "displayName": "Party Size",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Reservation Date",
+              "displayName": "Reservation Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Reservation Time",
+              "displayName": "Reservation Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Special Requests",
+              "displayName": "Special Requests",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Calendar Event ID",
+              "displayName": "Calendar Event ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Created At",
+              "displayName": "Created At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Last Updated",
+              "displayName": "Last Updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Reminder Sent",
+              "displayName": "Reminder Sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f5f6c661-ce0b-4edc-9eb2-2586b26e69a9",
+      "name": "Log Reservation",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.5,
+      "position": [
+        1008,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "options": {}
+      },
+      "id": "86f4ce19-b1cb-4df4-ac00-792c41e6e1fe",
+      "name": "Find Existing Reservation",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.5,
+      "position": [
+        1136,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Booking ID"
+          ],
+          "value": {
+            "Booking ID": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('booking_id', 'The booking ID to update') }}",
+            "Reservation Date": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('reservation_date', 'New reservation date in YYYY-MM-DD format, or leave as is') }}",
+            "Reservation Time": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('reservation_time', 'New reservation time, e.g. 20:00, or leave as is') }}",
+            "Status": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('status', 'New status such as Confirmed or Cancelled') }}",
+            "Calendar Event ID": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('event_id', 'The Google Calendar event ID') }}",
+            "Last Updated": "={{ $now.toISO() }}"
+          },
+          "schema": [
+            {
+              "id": "Booking ID",
+              "displayName": "Booking ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Chat ID",
+              "displayName": "Chat ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Customer Name",
+              "displayName": "Customer Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Party Size",
+              "displayName": "Party Size",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Reservation Date",
+              "displayName": "Reservation Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Reservation Time",
+              "displayName": "Reservation Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Special Requests",
+              "displayName": "Special Requests",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Calendar Event ID",
+              "displayName": "Calendar Event ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Created At",
+              "displayName": "Created At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Last Updated",
+              "displayName": "Last Updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Reminder Sent",
+              "displayName": "Reminder Sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "22e53093-06fc-4e12-9994-626881a79d80",
+      "name": "Update Reservation Record",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.5,
+      "position": [
+        1280,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Search the restaurant menu for dish names, prices, descriptions, categories, and dietary info (vegetarian/vegan/non-veg). Use this whenever the customer asks about food, drinks, prices, or the menu.",
+        "tableName": {
+          "__rl": true,
+          "mode": "id",
+          "value": "restaurant_menu"
+        },
+        "options": {
+          "queryName": "match_restaurant_menu"
+        }
+      },
+      "id": "6acaff47-b582-4b28-adb2-0d538a001149",
+      "name": "Menu Knowledge Base",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1.3,
+      "position": [
+        1424,
+        224
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "70a83c4c-9fdf-4846-8037-25f3316f3cab",
+      "name": "Menu Embeddings",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1424,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "={{ $json.output }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "3dd022ca-b561-47e8-b578-3faad798f4b5",
+      "name": "Send Reply to Customer",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1664,
+        64
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "bda7966e-bc23-4ec3-a63f-651f4d65faa4",
+      "name": "On Workflow Error",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_OWNER_TELEGRAM_CHAT_ID",
+        "text": "={{ \"Restaurant bot error in workflow: \" + $json.workflow.name }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "944696f1-7fc9-4b73-b4a9-d2c518400c0a",
+      "name": "Alert Owner of Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        208,
+        496
+      ]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Reservation Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reservation Agent": {
+      "main": [
+        [
+          {
+            "node": "Send Reply to Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Reservation Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conversation Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Reservation Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Availability": {
+      "ai_tool": [
+        [
+          {
+            "node": "Reservation Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Reservation Event": {
+      "ai_tool": [
+        [
+          {
+            "node": "Reservation Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Reservation Event": {
+      "ai_tool": [
+        [
+          {
+            "node": "Reservation Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel Reservation Event": {
+      "ai_tool": [
+        [
+          {
+            "node": "Reservation Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Reservation": {
+      "ai_tool": [
+        [
+          {
+            "node": "Reservation Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Existing Reservation": {
+      "ai_tool": [
+        [
+          {
+            "node": "Reservation Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Reservation Record": {
+      "ai_tool": [
+        [
+          {
+            "node": "Reservation Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Menu Knowledge Base": {
+      "ai_tool": [
+        [
+          {
+            "node": "Reservation Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Menu Embeddings": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Menu Knowledge Base",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On Workflow Error": {
+      "main": [
+        [
+          {
+            "node": "Alert Owner of Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  }
+}
